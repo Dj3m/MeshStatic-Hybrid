@@ -1,0 +1,38 @@
+=== MESHSTATIC-HYBRID УСТАНОВКА ===
+
+1. РАСПАКОВКА:
+   unzip meshstatic-v1.zip
+   cd meshstatic-v1
+
+2. НАСТРОЙКА:
+   - Открой platformio.ini
+   - Измени WIFI_SSID и WIFI_PASSWORD в firmware/coordinator/src/main.cpp
+
+3. СБОРКА КООРДИНАТОРА:
+   cd firmware/coordinator
+   pio run -t upload
+
+4. ПЕРВЫЙ ЗАПУСК:
+   - Подключи ESP32-S3
+   - Открой монитор порта (115200 бод)
+   - Подключись к Wi-Fi "MeshStatic-Config" (пароль: 12345678)
+   - Открой http://192.168.4.1
+
+5. ДОБАВЛЕНИЕ УСТРОЙСТВ:
+   - Собери репитер: cd firmware/repeater && pio run -t upload
+   - В веб-интерфейсе нажми "Scan Network"
+   - Назначь устройствам имена
+
+6. ТЕСТИРОВАНИЕ:
+   - В мониторе порта введите "status"
+   - Введите "devices" для списка устройств
+   - Введите "scan" для поиска новых
+
+=== КОНТАКТЫ ===
+Вопросы: создайте Issue на GitHub
+Срочно: email из CONFIG.txt
+
+=== ВАЖНОЕ ===
+- Система автономна, интернет не нужен
+- Ключи шифрования в CONFIG.txt
+- Резервное копирование настроек обязательно
