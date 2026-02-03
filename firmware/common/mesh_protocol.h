@@ -8,7 +8,7 @@
 #define PROTOCOL_VERSION        0x01
 #define MAX_PACKET_SIZE         250
 #define DEFAULT_TTL             7
-static const uint8_t BROADCAST_MAC[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+static const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 typedef enum {
     MSG_DATA_SENSOR        = 0x01,
@@ -20,7 +20,7 @@ typedef enum {
     MSG_DISCOVERY          = 0x07,
     MSG_CMD_GROUP          = 0x08,
     MSG_EVENT_BROADCAST    = 0x09,
-    MSG_DEVICE_STATE_UPDATE= 0x0A,
+    MSG_DEVICE_STATE_UPDATE = 0x0A,
     MSG_ACK                = 0x0E,
     MSG_NACK               = 0x0F
 } MessageType;
