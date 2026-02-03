@@ -968,3 +968,345 @@ void handle_root(AsyncWebServerRequest* request) {
             .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
             .header { background: #4CAF50; color: white; padding: 20px; border-radius: 10px 10px 0 0; margin: -20px -20px 20px -20px; }
             .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+            .stat-card { background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #4CAF50; }
+            .stat-value { font-size: 2em; font-weight: bold; color: #2c3e50; }
+            .stat-label { color: #7f8c8d; font-size: 0.9em; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { background: #34495e; color: white; padding: 12px; text-align: left; }
+            td { padding: 10px; border-bottom: 1px solid #ddd; }
+            .online { color: #27ae60; font-weight: bold; }
+            .offline { color: #e74c3c; }
+            .btn { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+            .btn:hover { background: #2980b9; }
+            .btn-scan { background: #e67e22; }
+            .btn-reboot { background: #e74c3c; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>MeshStatic Coordinator</h1>
+                <p>Autonomous Mesh Network Management</p>
+            </div>
+            
+            <div class="stats" id="stats">
+                <!-- Заполняется JavaScript -->
+            </div>
+            
+            <div>
+                <button class="btn" onclick="refreshData()">Refresh</button>
+                <button class="btn btn-scan" onclick="sendCommand('scan')">Scan Network</button>
+                <button class="btn btn-reboot" onclick="reboot()">Reboot</button>
+            </div>
+            
+            <h2>Connected Devices</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>MAC Address</th>
+                        <th>Signal</th>
+                        <th>Last Seen</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="devices-table">
+                    <!-- Заполняется JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <script>
+            function refreshData() {
+                fetch('/api/network-status')
+                    .then(r => r.json())
+                    .then(data => {
+                        document.getElementById('stats').innerHTML = `
+                            <div class="stat-card">
+                                <div class="stat-value">${data.uptime}s</div>
+                                <div class="stat-label">Uptime</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${data.packets_received}</div>
+                                <div class="stat-label">Packets Received</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${data.packets_sent}</div>
+                                <div class="stat-label">Packets Sent</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${data.nodes_online}</div>
+                                <div class="stat-label">Nodes Online</div>
+                            </div>`;
+                    });
+                    
+                fetch('/api/devices')
+                    .then(r => r.json())
+                    .then(data => {
+                        let html = '';
+                        data.devices.forEach(device => {
+                            html += `
+                                <tr>
+                                    <td>${device.mac}</td>
+                                    <td>${device.rssi} dBm</td>
+                                    <td>${device.last_seen}s ago</td>
+                                    <td class="${device.online ? 'online' : 'offline'}">
+                                        ${device.online ? 'ONLINE' : 'OFFLINE'}
+                                    </td>
+                                </tr>`;
+                        });
+                        document.getElementById('devices-table').innerHTML = html;
+                    });
+            }
+            
+            function sendCommand(cmd) {
+                fetch('/api/command', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({command: cmd})
+                }).then(r => r.json())
+                  .then(data => alert(data.message));
+            }
+            
+            function reboot() {
+                if(confirm('Reboot coordinator?')) {
+                    fetch('/api/reboot', {method: 'POST'});
+                }
+            }
+            
+            // Автообновление каждые 10 секунд
+            setInterval(refreshData, 10000);
+            document.addEventListener('DOMContentLoaded', refreshData);
+        </script>
+    </body>
+    </html>
+    )rawliteral";
+    
+    request->send(200, "text/html", html);
+}
+
+/**
+ * API: статус сети
+ */
+void handle_api_network_status(AsyncWebServerRequest* request) {
+    StaticJsonDocument<512> doc;
+    
+    doc["uptime"] = (millis() - network_state.startup_time) / 1000;
+    doc["packets_received"] = network_state.packets_received;
+    doc["packets_sent"] = network_state.packets_sent;
+    
+    // Считаем онлайн-устройства
+    uint8_t online_count = 0;
+    uint32_t now = millis() / 1000;
+    for (int i = 0; i < routing_table_size; i++) {
+        if (now - routing_table[i].last_seen < 300) {  // Видели последние 5 минут
+            online_count++;
+        }
+    }
+    
+    doc["nodes_online"] = online_count;
+    doc["nodes_total"] = routing_table_size;
+    doc["mesh_initialized"] = network_state.mesh_initialized;
+    doc["wifi_connected"] = network_state.wifi_connected;
+    doc["free_heap"] = ESP.getFreeHeap();
+    doc["free_heap_min"] = network_state.free_heap_min;
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+/**
+ * API: список устройств
+ */
+void handle_api_devices(AsyncWebServerRequest* request) {
+    StaticJsonDocument<4096> doc;
+    JsonArray devices = doc.createNestedArray("devices");
+    
+    uint32_t now = millis() / 1000;
+    
+    for (int i = 0; i < routing_table_size; i++) {
+        JsonObject device = devices.createNestedObject();
+        
+        device["mac"] = mac_to_string(routing_table[i].device_mac);
+        device["rssi"] = routing_table[i].rssi;
+        device["last_seen"] = now - routing_table[i].last_seen;
+        device["online"] = (now - routing_table[i].last_seen) < 300;  // 5 минут
+        
+        if (routing_table[i].battery_mv > 0) {
+            device["battery"] = routing_table[i].battery_mv;
+        }
+    }
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+/**
+ * API: отправка команды
+ */
+void handle_api_command(AsyncWebServerRequest* request) {
+    if (request->method() == HTTP_POST) {
+        String body = request->arg("plain");
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, body);
+        
+        if (error) {
+            request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+            return;
+        }
+        
+        const char* command = doc["command"];
+        
+        if (strcmp(command, "scan") == 0) {
+            send_device_discovery();
+            request->send(200, "application/json", "{\"message\":\"Scan started\"}");
+        } else {
+            request->send(400, "application/json", "{\"error\":\"Unknown command\"}");
+        }
+    } else {
+        request->send(405, "application/json", "{\"error\":\"Method not allowed\"}");
+    }
+}
+
+/**
+ * API: логи системы
+ */
+void handle_api_logs(AsyncWebServerRequest* request) {
+    // В реальной системе здесь читались бы логи из файла
+    request->send(200, "text/plain", "Logs would be here...\n");
+}
+
+// ============================================================================
+// УТИЛИТЫ
+// ============================================================================
+
+/**
+ * Конвертация MAC в строку
+ * 
+ * @param mac MAC адрес
+ * @return Строка вида "AA:BB:CC:DD:EE:FF"
+ */
+String mac_to_string(const uint8_t* mac) {
+    char buf[18];
+    snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return String(buf);
+}
+
+/**
+ * Логирование события
+ * 
+ * @param event Событие
+ * @param details Детали
+ */
+void log_event(const char* event, const char* details) {
+    // В реальной системе здесь было бы сохранение в файл
+    Serial.printf("Event: %s", event);
+    if (details && strlen(details) > 0) {
+        Serial.printf(" (%s)", details);
+    }
+    Serial.println();
+}
+
+// ============================================================================
+// ОСНОВНОЙ ЦИКЛ
+// ============================================================================
+
+/**
+ * Главный цикл программы
+ * 
+ * Вызывается постоянно после setup().
+ * Здесь обрабатываются фоновые задачи.
+ */
+void loop() {
+    static uint32_t last_heartbeat = 0;
+    static uint32_t last_cleanup = 0;
+    static uint32_t last_stat_update = 0;
+    
+    // Периодический heartbeat
+    if (millis() - last_heartbeat > HEARTBEAT_INTERVAL) {
+        send_heartbeat();
+        last_heartbeat = millis();
+    }
+    
+    // Очистка старых записей каждую минуту
+    if (millis() - last_cleanup > 60000) {
+        cleanup_old_entries();
+        last_cleanup = millis();
+    }
+    
+    // Обновление статистики памяти
+    if (millis() - last_stat_update > 10000) {
+        uint32_t free_heap = ESP.getFreeHeap();
+        if (free_heap < network_state.free_heap_min) {
+            network_state.free_heap_min = free_heap;
+        }
+        last_stat_update = millis();
+    }
+    
+    // Простая консоль для отладки
+    if (Serial.available()) {
+        String cmd = Serial.readStringUntil('\n');
+        cmd.trim();
+        
+        if (cmd == "status") {
+            Serial.println("=== Coordinator Status ===");
+            Serial.printf("Uptime: %lu seconds\n", (millis() - network_state.startup_time) / 1000);
+            Serial.printf("Packets RX/TX: %lu/%lu\n", 
+                         network_state.packets_received, 
+                         network_state.packets_sent);
+            Serial.printf("Routing entries: %d\n", routing_table_size);
+            Serial.printf("Free heap: %lu bytes (min: %lu)\n", 
+                         ESP.getFreeHeap(), 
+                         network_state.free_heap_min);
+            Serial.printf("WiFi: %s\n", 
+                         network_state.wifi_connected ? "Connected" : "AP Mode");
+            Serial.printf("Mesh: %s\n", 
+                         network_state.mesh_initialized ? "Ready" : "Not ready");
+        } 
+        else if (cmd == "devices") {
+            Serial.println("=== Connected Devices ===");
+            for (int i = 0; i < routing_table_size; i++) {
+                Serial.printf("%2d. %s ", i + 1, 
+                             mac_to_string(routing_table[i].device_mac).c_str());
+                Serial.printf("(RSSI: %d, ", routing_table[i].rssi);
+                
+                uint32_t last_seen = (millis() / 1000) - routing_table[i].last_seen;
+                if (last_seen < 60) {
+                    Serial.printf("seen %lus ago)\n", last_seen);
+                } else if (last_seen < 3600) {
+                    Serial.printf("seen %lum ago)\n", last_seen / 60);
+                } else {
+                    Serial.printf("seen %luh ago)\n", last_seen / 3600);
+                }
+            }
+        }
+        else if (cmd == "scan") {
+            send_device_discovery();
+            Serial.println("Discovery packet sent");
+        }
+        else if (cmd == "reboot") {
+            Serial.println("Rebooting...");
+            delay(1000);
+            ESP.restart();
+        }
+        else if (cmd == "help") {
+            Serial.println("Available commands:");
+            Serial.println("  status    - Show system status");
+            Serial.println("  devices   - List connected devices");
+            Serial.println("  scan      - Send discovery packet");
+            Serial.println("  reboot    - Reboot coordinator");
+            Serial.println("  help      - This help");
+        }
+        else {
+            Serial.printf("Unknown command: %s\n", cmd.c_str());
+            Serial.println("Type 'help' for available commands");
+        }
+    }
+    
+    // Небольшая задержка чтобы не грузить процессор
+    delay(100);
+}
+
+// Конец файла main.cpp
