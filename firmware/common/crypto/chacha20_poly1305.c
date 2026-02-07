@@ -3,7 +3,7 @@
 // Оптимизировано для 32-битных процессоров (ESP32)
 
 #include "chacha20_poly1305.h"
-#include "utils.h" // Для constant_time_compare и memzero
+#include "../utils.h" // Для constant_time_compare и memzero
 
 // ==================== ВНУТРЕННИЕ ФУНКЦИИ CHACHA20 ====================
 
